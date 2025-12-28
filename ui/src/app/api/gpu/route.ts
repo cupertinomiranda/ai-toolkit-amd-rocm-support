@@ -12,7 +12,8 @@ export async function GET() {
     const isWindows = platform === 'win32';
 
     // Check if nvidia-smi is available
-    const hasNvidiaSmi = await checkNvidiaSmi(isWindows);
+    // const hasNvidiaSmi = await checkNvidiaSmi(isWindows);
+    const hasNvidiaSmi = false; // Forced to false for AMD optimization
     const hasAmdSmi = await checkAMDSmi(isWindows);
 
     if (!hasNvidiaSmi && !hasAmdSmi) {
@@ -142,24 +143,27 @@ async function getGpuStats(isWindows: boolean) {
   return gpus;
 }
 
-// amdParseFloat and amdParseInt avoid errors when amd-smi entries
-// contain the string "N/A".
-function amdParseFloat(value) {
-    try {
-        const ret = parseFloat(value);
-        return ret;
-    } catch(error) {
-        return 0.0;
-    }
+// 安全访问嵌套属性的辅助函数
+function safeGet(obj: any, path: string[]): any {
+  return path.reduce((acc, key) => (acc && acc[key] !== 'N/A' ? acc[key] : undefined), obj);
 }
 
-function amdParseInt(value) {
-    try {
-        const ret = parseInt(value);
-        return ret;
-    } catch(error) {
-        return 0;
-    }
+function amdParseFloat(value: any): number {
+  try {
+    const ret = parseFloat(value);
+    return isNaN(ret) ? 0.0 : ret;
+  } catch (error) {
+    return 0.0;
+  }
+}
+
+function amdParseInt(value: any): number {
+  try {
+    const ret = parseInt(value);
+    return isNaN(ret) ? 0 : ret;
+  } catch (error) {
+    return 0;
+  }
 }
 
 async function getAMDGpuStats(isWindows: boolean) {
@@ -171,51 +175,101 @@ async function getAMDGpuStats(isWindows: boolean) {
   });
   var data = stdout.split(';');
 
-  var sdata = {};
-  var mdata = {};
+  var sdata: any = {};
+  var mdata: any = {};
   try {
-      sdata = JSON.parse(data[0]);
-      mdata = JSON.parse(data[1]);
+    sdata = JSON.parse(data[0]);
+    mdata = JSON.parse(data[1]);
   } catch (error) {
     console.error('Failed to parse output of amd-smi returned json: ', error);
     return [];
   }
 
-  var gpus = sdata["gpu_data"].map(d => {
-    const i = amdParseInt(d["gpu"]);
-    const gpu_data = mdata["gpu_data"][i];
-    const mem_total = amdParseFloat(gpu_data["mem_usage"]["total_vram"]["value"]);
-    const mem_used =  amdParseFloat(gpu_data["mem_usage"]["used_vram"]["value"]);
-    const mem_free =  amdParseFloat(gpu_data["mem_usage"]["free_visible_vram"]["value"]);
-    const mem_utilization = ((1.0 - (mem_total - mem_free)) / mem_total) * 100;
+  // 检查数据结构是否完整
+  if (!sdata || !sdata["gpu_data"] || !Array.isArray(sdata["gpu_data"])) {
+    return [];
+  }
 
-    return {
-      index: i,
-      name: d["asic"]["market_name"],
-      driverVersion: d["driver"]["version"],
-      temperature: amdParseInt(gpu_data["temperature"]["hotspot"]["value"]),
-      utilization: {
-        gpu: amdParseInt(gpu_data["usage"]["gfx_activity"]["value"]),
-        memory: mem_utilization,
-      },
-      memory: {
-        total: mem_total,
-        used:  mem_used,
-        free:  mem_free,
-      },
-      power: {
-        draw: amdParseFloat(gpu_data["power"]["socket_power"]["value"]),
-        limit: amdParseFloat(d["limit"]["max_power"]["value"]),
-      },
-      clocks: {
-        graphics: amdParseInt(gpu_data["clock"]["gfx_0"]["clk"]["value"]),
-        memory: amdParseInt(gpu_data["clock"]["mem_0"]["clk"]["value"]),
-      },
-      fan: {
-        speed: amdParseFloat(gpu_data["fan"]["usage"]["value"]),
+  // 获取可见设备列表 (HIP_VISIBLE_DEVICES)
+  // 如果设置了该环境变量 (例如 "0" 或 "0,1")，则只显示列表中的显卡
+  const visibleDevicesEnv = process.env.HIP_VISIBLE_DEVICES ?? process.env.ROCR_VISIBLE_DEVICES;
+  let allowedIndices: Set<number> | null = null;
+
+  if (visibleDevicesEnv !== undefined && visibleDevicesEnv !== '') {
+    const parts = visibleDevicesEnv.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+    if (parts.length > 0) {
+      allowedIndices = new Set(parts);
+    }
+  }
+
+  // 过滤并映射 GPU 数据
+  var gpus = sdata["gpu_data"]
+    .filter((d: any) => {
+      if (allowedIndices === null) return true; // 未设置环境变量，显示所有
+      const gpuIndex = amdParseInt(d["gpu"]);
+      return allowedIndices.has(gpuIndex);
+    })
+    .map((d: any) => {
+      const i = amdParseInt(d["gpu"]);
+      // 确保 mdata 存在且有对应的索引
+      const gpu_data = mdata && mdata["gpu_data"] ? mdata["gpu_data"][i] : {};
+
+      // 使用 safeGet 安全提取数据
+      // 显存
+      const mem_total = amdParseFloat(safeGet(gpu_data, ["mem_usage", "total_vram", "value"]));
+      const mem_used = amdParseFloat(safeGet(gpu_data, ["mem_usage", "used_vram", "value"]));
+      const mem_free = amdParseFloat(safeGet(gpu_data, ["mem_usage", "free_visible_vram", "value"]));
+
+      // 计算显存使用率，防止除以零
+      let mem_utilization = 0;
+      if (mem_total > 0) {
+        mem_utilization = ((1.0 - (mem_total - mem_free)) / mem_total) * 100;
       }
-    };
-  });
+
+      // 功耗
+      const powerDraw = amdParseFloat(safeGet(gpu_data, ["power", "socket_power", "value"]));
+      const powerLimit = amdParseFloat(safeGet(d, ["limit", "max_power", "value"]));
+
+      // 时钟频率
+      const clockGraphics = amdParseInt(safeGet(gpu_data, ["clock", "gfx_0", "clk", "value"]));
+      const clockMemory = amdParseInt(safeGet(gpu_data, ["clock", "mem_0", "clk", "value"]));
+
+      // 风扇
+      const fanSpeed = amdParseFloat(safeGet(gpu_data, ["fan", "usage", "value"]));
+
+      // 温度
+      const tempHotspot = amdParseInt(safeGet(gpu_data, ["temperature", "hotspot", "value"]));
+
+      // GPU 利用率
+      const gpuUtil = amdParseInt(safeGet(gpu_data, ["usage", "gfx_activity", "value"]));
+
+      return {
+        index: i,
+        name: safeGet(d, ["asic", "market_name"]) || `AMD GPU ${i}`,
+        driverVersion: safeGet(d, ["driver", "version"]) || "Unknown",
+        temperature: tempHotspot,
+        utilization: {
+          gpu: gpuUtil,
+          memory: mem_utilization,
+        },
+        memory: {
+          total: mem_total,
+          used: mem_used,
+          free: mem_free,
+        },
+        power: {
+          draw: powerDraw,
+          limit: powerLimit,
+        },
+        clocks: {
+          graphics: clockGraphics,
+          memory: clockMemory,
+        },
+        fan: {
+          speed: fanSpeed,
+        }
+      };
+    });
 
   return gpus;
 }

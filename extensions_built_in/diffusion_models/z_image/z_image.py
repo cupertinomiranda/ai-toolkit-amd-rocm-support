@@ -18,7 +18,7 @@ from toolkit.util.quantize import quantize, get_qtype, quantize_model
 from toolkit.memory_management import MemoryManager
 from safetensors.torch import load_file
 
-from transformers import AutoTokenizer, Qwen3ForCausalLM
+from transformers import AutoTokenizer, Qwen3ForCausalLM, BitsAndBytesConfig
 from diffusers import AutoencoderKL
 
 try:
@@ -131,20 +131,30 @@ class ZImageModel(BaseModel):
         network._update_torch_multiplier()
         network.load_weights(lora_state_dict)
 
-        network.merge_in(merge_weight=1.0)
+        # Check if NF4 (QLoRA) - skip merge, keep active
+        if self.model_config.quantize and self.model_config.qtype == "nf4":
+            self.print_and_status_update("Skipping merge for NF4. Keeping assistant active.")
+            self.assistant_lora: LoRASpecialNetwork = network
+            self.assistant_lora.multiplier = 1.0
+            self.assistant_lora.is_active = True
+            # We do NOT invert during inference, we just disable it.
+            # Base model logic handles "unloading" by setting active=False if invert is False.
+            self.invert_assistant_lora = False
+        else:
+            network.merge_in(merge_weight=1.0)
 
-        # mark it as not merged so inference ignores it.
-        network.is_merged_in = False
+            # mark it as not merged so inference ignores it.
+            network.is_merged_in = False
 
-        # add the assistant so sampler will activate it while sampling
-        self.assistant_lora: LoRASpecialNetwork = network
+            # add the assistant so sampler will activate it while sampling
+            self.assistant_lora: LoRASpecialNetwork = network
 
-        # deactivate lora during training
-        self.assistant_lora.multiplier = -1.0
-        self.assistant_lora.is_active = False
+            # deactivate lora during training
+            self.assistant_lora.multiplier = -1.0
+            self.assistant_lora.is_active = False
 
-        # tell the model to invert assistant on inference since we want remove lora effects
-        self.invert_assistant_lora = True
+            # tell the model to invert assistant on inference since we want remove lora effects
+            self.invert_assistant_lora = True
 
     def load_model(self):
         dtype = self.torch_dtype
@@ -165,8 +175,21 @@ class ZImageModel(BaseModel):
             if os.path.exists(te_folder_path):
                 base_model_path = model_path
 
+        # Check for NF4 quantization request
+        bnb_config = None
+        if self.model_config.quantize and self.model_config.qtype == "nf4":
+            self.print_and_status_update("Using BitsAndBytes NF4 Quantization for Transformer")
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=dtype
+            )
+
         transformer = ZImageTransformer2DModel.from_pretrained(
-            transformer_path, subfolder=transformer_subfolder, torch_dtype=dtype
+            transformer_path, 
+            subfolder=transformer_subfolder, 
+            torch_dtype=dtype,
+            quantization_config=bnb_config
         )
 
         # load assistant lora if specified
@@ -176,7 +199,7 @@ class ZImageModel(BaseModel):
             if self.model_config.qtype == "qfloat8":
                 self.model_config.qtype = "float8"
 
-        if self.model_config.quantize:
+        if self.model_config.quantize and self.model_config.qtype != "nf4":
             self.print_and_status_update("Quantizing Transformer")
             quantize_model(self, transformer)
             flush()
@@ -201,8 +224,21 @@ class ZImageModel(BaseModel):
         tokenizer = AutoTokenizer.from_pretrained(
             base_model_path, subfolder="tokenizer", torch_dtype=dtype
         )
+        # Check for NF4 quantization request for TE
+        te_bnb_config = None
+        if self.model_config.quantize_te and self.model_config.qtype_te == "nf4":
+            self.print_and_status_update("Using BitsAndBytes NF4 Quantization for Text Encoder")
+            te_bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=dtype
+            )
+        
         text_encoder = Qwen3ForCausalLM.from_pretrained(
-            base_model_path, subfolder="text_encoder", torch_dtype=dtype
+            base_model_path, 
+            subfolder="text_encoder", 
+            torch_dtype=dtype,
+            quantization_config=te_bnb_config
         )
 
         if (
@@ -215,10 +251,11 @@ class ZImageModel(BaseModel):
                 offload_percent=self.model_config.layer_offloading_text_encoder_percent,
             )
 
-        text_encoder.to(self.device_torch, dtype=dtype)
+        if not (self.model_config.quantize_te and self.model_config.qtype_te == "nf4"):
+            text_encoder.to(self.device_torch, dtype=dtype)
         flush()
 
-        if self.model_config.quantize_te:
+        if self.model_config.quantize_te and self.model_config.qtype_te != "nf4":
             self.print_and_status_update("Quantizing Text Encoder")
             quantize(text_encoder, weights=get_qtype(self.model_config.qtype_te))
             freeze(text_encoder)
@@ -254,11 +291,13 @@ class ZImageModel(BaseModel):
 
         # leave it on cpu for now
         if not self.low_vram:
-            pipe.transformer = pipe.transformer.to(self.device_torch)
+             if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+                pipe.transformer = pipe.transformer.to(self.device_torch)
 
         flush()
         # just to make sure everything is on the right device and dtype
-        text_encoder[0].to(self.device_torch)
+        if not (self.model_config.quantize_te and self.model_config.qtype_te == "nf4"):
+            text_encoder[0].to(self.device_torch)
         text_encoder[0].requires_grad_(False)
         text_encoder[0].eval()
         flush()
@@ -295,8 +334,9 @@ class ZImageModel(BaseModel):
         generator: torch.Generator,
         extra: dict,
     ):
-        self.model.to(self.device_torch, dtype=self.torch_dtype)
-        self.model.to(self.device_torch)
+        if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+            self.model.to(self.device_torch, dtype=self.torch_dtype)
+            self.model.to(self.device_torch)
 
         sc = self.get_bucket_divisibility()
         gen_config.width = int(gen_config.width // sc * sc)
@@ -328,10 +368,22 @@ class ZImageModel(BaseModel):
 
         timestep_model_input = (1000 - timestep) / 1000
 
+        text_embeds = text_embeddings.text_embeds
+        if isinstance(text_embeds, list):
+            # if it is a list of length 1 containing a batched tensor, we need to unbind it
+            if len(text_embeds) == 1 and text_embeds[0].shape[0] == len(latent_model_input_list):
+                text_embeds = list(text_embeds[0].unbind(dim=0))
+        elif isinstance(text_embeds, torch.Tensor):
+            if len(text_embeds.shape) == 3 and text_embeds.shape[0] == len(latent_model_input_list):
+                text_embeds = list(text_embeds.unbind(dim=0))
+            elif len(text_embeds.shape) == 2:
+                # should not happen with new get_prompt_embeds but for safety
+                text_embeds = [text_embeds]
+
         model_out_list = self.transformer(
             latent_model_input_list,
             timestep_model_input,
-            text_embeddings.text_embeds,
+            text_embeds,
         )[0]
 
         noise_pred = torch.stack([t.float() for t in model_out_list], dim=0)
@@ -350,6 +402,14 @@ class ZImageModel(BaseModel):
             do_classifier_free_guidance=False,
             device=self.device_torch,
         )
+        # if it is a list, take the first element
+        if isinstance(prompt_embeds, list):
+            prompt_embeds = prompt_embeds[0]
+            
+        # ensure it has a batch dimension (1, seq, dim)
+        if len(prompt_embeds.shape) == 2:
+            prompt_embeds = prompt_embeds.unsqueeze(0)
+            
         pe = PromptEmbeds([prompt_embeds, None])
         return pe
 

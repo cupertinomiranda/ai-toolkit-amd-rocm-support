@@ -630,10 +630,21 @@ class StableDiffusion:
                 if os.path.exists(te_folder_path):
                     base_model_path = model_path
 
+            # Check for NF4 quantization request
+            bnb_config = None
+            if self.model_config.quantize and self.model_config.qtype == "nf4":
+                self.print_and_status_update("Using BitsAndBytes NF4 Quantization")
+                bnb_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=dtype
+                )
+
             transformer = FluxTransformer2DModel.from_pretrained(
                 transformer_path,
                 subfolder=subfolder,
                 torch_dtype=dtype,
+                quantization_config=bnb_config,
                 # low_cpu_mem_usage=False,
                 # device_map=None
             )
@@ -757,7 +768,7 @@ class StableDiffusion:
                     pipe.unload_lora_weights()
             flush()
             
-            if self.model_config.quantize:
+            if self.model_config.quantize and self.model_config.qtype != "nf4":
                 # patch the state dict method
                 patch_dequantization_on_save(transformer)
                 quantization_type = get_qtype(self.model_config.qtype)
@@ -779,14 +790,28 @@ class StableDiffusion:
             flush()
             
             self.print_and_status_update("Loading T5")
+            # Check for NF4 quantization request for TE
+            te_bnb_config = None
+            if self.model_config.quantize_te and self.model_config.qtype == "nf4":
+                self.print_and_status_update("Using BitsAndBytes NF4 Quantization for T5")
+                te_bnb_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=dtype
+                )
+
             tokenizer_2 = T5TokenizerFast.from_pretrained(base_model_path, subfolder="tokenizer_2", torch_dtype=dtype)
-            text_encoder_2 = T5EncoderModel.from_pretrained(base_model_path, subfolder="text_encoder_2",
-                                                            torch_dtype=dtype)
+            text_encoder_2 = T5EncoderModel.from_pretrained(
+                base_model_path, 
+                subfolder="text_encoder_2",
+                torch_dtype=dtype,
+                quantization_config=te_bnb_config
+            )
 
             text_encoder_2.to(self.device_torch, dtype=dtype)
             flush()
 
-            if self.model_config.quantize_te:
+            if self.model_config.quantize_te and self.model_config.qtype != "nf4":
                 self.print_and_status_update("Quantizing T5")
                 quantize(text_encoder_2, weights=get_qtype(self.model_config.qtype))
                 freeze(text_encoder_2)

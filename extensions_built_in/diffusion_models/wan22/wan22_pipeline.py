@@ -92,10 +92,13 @@ class Wan22Pipeline(WanPipeline):
             print("Unloading vae")
             self.vae.to("cpu")
             print("Unloading transformer")
-            self.transformer.to("cpu")
+            if not (hasattr(self, 'model_config') and self.model_config.quantize and self.model_config.qtype == "nf4"):
+                self.transformer.to("cpu")
             if self.transformer_2 is not None:
-                self.transformer_2.to("cpu")
-            self.text_encoder.to(device)
+                if not (hasattr(self, 'model_config') and self.model_config.quantize and self.model_config.qtype == "nf4"):
+                    self.transformer_2.to("cpu")
+            if not (hasattr(self, 'model_config') and self.model_config.quantize_te and self.model_config.qtype_te == "nf4"):
+                self.text_encoder.to(device)
             flush()
         
 
@@ -142,8 +145,10 @@ class Wan22Pipeline(WanPipeline):
         if self._aggressive_offload:
             # unload text encoder
             print("Unloading text encoder")
-            self.text_encoder.to("cpu")
-            self.transformer.to(device)
+            if not (hasattr(self, 'model_config') and self.model_config.quantize_te and self.model_config.qtype_te == "nf4"):
+                self.text_encoder.to("cpu")
+            if not (hasattr(self, 'model_config') and self.model_config.quantize and self.model_config.qtype == "nf4"):
+                self.transformer.to(device)
             flush()
 
         transformer_dtype = self.transformer.dtype
@@ -212,17 +217,21 @@ class Wan22Pipeline(WanPipeline):
                 if boundary_timestep is None or t >= boundary_timestep:
                     if self._aggressive_offload and current_model != self.transformer:
                         if self.transformer_2 is not None:
-                            self.transformer_2.to("cpu")
-                        self.transformer.to(device)
+                            if not (hasattr(self, 'model_config') and self.model_config.quantize and self.model_config.qtype == "nf4"):
+                                self.transformer_2.to("cpu")
+                        if not (hasattr(self, 'model_config') and self.model_config.quantize and self.model_config.qtype == "nf4"):
+                            self.transformer.to(device)
                     # wan2.1 or high-noise stage in wan2.2
                     current_model = self.transformer
                     current_guidance_scale = guidance_scale
                 else:
                     if self._aggressive_offload and current_model != self.transformer_2:
                         if self.transformer is not None:
-                            self.transformer.to("cpu")
+                            if not (hasattr(self, 'model_config') and self.model_config.quantize and self.model_config.qtype == "nf4"):
+                                self.transformer.to("cpu")
                         if self.transformer_2 is not None:
-                            self.transformer_2.to(device)
+                            if not (hasattr(self, 'model_config') and self.model_config.quantize and self.model_config.qtype == "nf4"):
+                                self.transformer_2.to(device)
                     # low-noise stage in wan2.2
                     current_model = self.transformer_2
                     current_guidance_scale = guidance_scale_2
@@ -296,9 +305,11 @@ class Wan22Pipeline(WanPipeline):
         if self._aggressive_offload:
             # unload transformer
             print("Unloading transformer")
-            self.transformer.to("cpu")
+            if not (hasattr(self, 'model_config') and self.model_config.quantize and self.model_config.qtype == "nf4"):
+                self.transformer.to("cpu")
             if self.transformer_2 is not None:
-                self.transformer_2.to("cpu")
+                if not (hasattr(self, 'model_config') and self.model_config.quantize and self.model_config.qtype == "nf4"):
+                    self.transformer_2.to("cpu")
             # load vae
             print("Loading Vae")
             self.vae.to(vae_device)

@@ -164,59 +164,131 @@ _Last updated: 2025-10-20 15:52 UTC_
 ## Installation
 
 Requirements:
-- python >3.10
+- python =3.12
 - Nvidia or AMD ROCm GPU with enough ram to do what you need
 - python venv
 - git
 
 
-Linux:
+# AI Toolkit - AMD ROCm NF4 Support (7900 XTX Optimized)
+
+AI Toolkit is an all-in-one training suite for diffusion models. This fork specifically focuses on **NF4 (4-bit NormalFloat) quantization** and performance optimizations for **AMD Radeon RX 7900 XTX** GPUs using the **ROCm 7.1.1+** stack.
+
+Successfully train massive models like **Wan 2.2 (14B)** and **Z-Image-Turbo** on consumer-grade 24GB VRAM AMD hardware.
+
+## Branch Highlights: `7900xtx-NF4-support`
+
+- **4-Bit NF4 Quantization**: Integrated `bitsandbytes` NF4 support for loading Transformer and Text Encoder weights, reducing VRAM footprint significantly.
+- **AMD Optimized Backend**: Custom guards for `.to()` calls to prevent quantization casting errors on ROCm.
+- **LoRA on NF4**: Direct LoRA fine-tuning on 4-bit base models (Dynamic Patching, no physical merging required).
+- **Z-Image & Wan Support**: Full compatibility with Tongyi-MAI/Z-Image and Wan-AI models (Wan 2.1 T2V/I2V, Wan 2.2 5B/14B).
+- **UI Enhancements**: Added NF4 quantization toggle and Gradient Checkpointing toggle to the job configuration page.
+
+---
+
+## Support My Work
+
+If you enjoy my projects or use them commercially, please consider sponsoring me. Every bit helps! 💖
+
+[Sponsor on GitHub](https://github.com/orgs/ostris) | [Support on Patreon](https://www.patreon.com/ostris) | [Donate on PayPal](https://www.paypal.com/donate/?hosted_button_id=9GEFUKC8T9R9W)
+
+### Current Sponsors
+
+All of these people / organizations are the ones who selflessly make this project possible. Thank you!!
+
+_Last updated: 2025-10-20 15:52 UTC_
+
+<p align="center">
+<a href="https://x.com/NuxZoe" target="_blank" rel="noopener noreferrer"><img src="https://pbs.twimg.com/profile_images/1919488160125616128/QAZXTMEj_400x400.png" alt="a16z" width="280" height="280" style="border-radius:8px;margin:5px;display: inline-block;"></a>
+<a href="https://github.com/replicate" target="_blank" rel="noopener noreferrer"><img src="https://avatars.githubusercontent.com/u/60410876?v=4" alt="Replicate" width="280" height="280" style="border-radius:8px;margin:5px;display: inline-block;"></a>
+<a href="https://github.com/huggingface" target="_blank" rel="noopener noreferrer"><img src="https://avatars.githubusercontent.com/u/25720743?v=4" alt="Hugging Face" width="280" height="280" style="border-radius:8px;margin:5px;display: inline-block;"></a>
+</p>
+
+---
+
+## Installation (AMD ROCm 7.1.1+)
+
+For best performance on **7900 XTX**, follow these steps:
+
+1. **System Setup**: Install `amdgpu` drivers and ROCm 7.1.1.
+2. **Environment**:
 ```bash
-git clone https://github.com/ostris/ai-toolkit.git
-cd ai-toolkit
+git clone https://github.com/cupertinomiranda/ai-toolkit-amd-rocm-support.git -b 7900xtx-NF4-support
+cd ai-toolkit-amd-rocm-support
 python3 -m venv venv
 source venv/bin/activate
-# install torch first
-pip3 install --no-cache-dir torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu126
-pip3 install -r requirements.txt
-```
 
-Windows:
-
-If you are having issues with Windows. I recommend using the easy install script at [https://github.com/Tavris1/AI-Toolkit-Easy-Install](https://github.com/Tavris1/AI-Toolkit-Easy-Install)
-
-```bash
-git clone https://github.com/ostris/ai-toolkit.git
-cd ai-toolkit
-python -m venv venv
-.\venv\Scripts\activate
-pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu126
-pip install -r requirements.txt
-```
-
-Linux AMD:
-
-Follow instructions in https://rocm.docs.amd.com to install amdgpu drivers and rocm support. Latest version 7.1.1 is confirmed to work. older versions might not work due to differences in amd-smi command.
-
-```bash
-git clone https://github.com/ostris/ai-toolkit.git
-cd ai-toolkit
-python3 -m venv venv
-source venv/bin/activate
-# install torch first - rocm7.1 compatible
+# Install Nightly Torch for ROCm 7.1
 pip install --pre torch torchvision torchaudio torchao --index-url https://download.pytorch.org/whl/nightly/rocm7.1
-pip3 install -r requirements-amd.txt
+pip install --index-url https://rocm.nightlies.amd.com/v2/gfx110X-all/ "rocm[libraries,devel]"
 ```
 
-AI Toolkit requires to have bitsandbytes installed. Perhaps this will change but for now the solution is to build it.
+3. **Build bitsandbytes for ROCm (Detailed)**:
+   
+   Follow these steps to build and install `bitsandbytes` from source for AMD GPUs:
+
+   - **Clone and Prepare**:
+     ```bash
+     git clone https://github.com/bitsandbytes-foundation/bitsandbytes.git
+     cd bitsandbytes
+     # For Windows compatibility, ensure csrc/ops_hip.cuh wraps #include <unistd.h> in #ifndef _WIN32
+     ```
+   
+   - **Configuration (CMake for gfx1100)**:
+     ```bash
+     cmake -DCMAKE_HIP_COMPILER="/opt/rocm-7.1.1/lib/llvm/bin/clang++"  -DCOMPUTE_BACKEND=hip -S . -B build \
+         -DCMAKE_BUILD_TYPE="Release" \
+         -DBNB_ROCM_ARCH=gfx1100 \
+         -DHIP_PLATFORM="amd" \
+         -DCMAKE_HIP_ARCHITECTURES="gfx1100" \
+         -DCMAKE_HIP_FLAGS="-D__AMDGCN_WAVEFRONT_SIZE=32"
+     ```
+   
+   - **Build and Install**:
+     ```bash
+     cmake --build build
+     # On Windows, copy DLL: Copy-Item "build\libbitsandbytes_rocm*.dll" -Destination "bitsandbytes\"
+     pip install .
+     ```
+
+   - **Post-Installation Patch**:
+     In some environments, you must modify `bitsandbytes/cuda_specs.py` to use `hipInfo` instead of `rocminfo` for correct architecture and warp size detection. Refer to the [Detailed Build Guide](Bitsandbytes%20%20Cmake%20Build%20(English).md) for the exact code snippets.
+     
+4. **Install Dependencies**:
+cd ai-toolkit-amd-rocm-support
+pip install -r requirements-amd.txt
+
+---
+
+## Performance & Monitoring (AMD Specific)
+
+To get the most out of your 7900 XTX, we have included specific tools and guides in this branch:
+
+### Hardware Acceleration Verification
+Run our diagnostic script to ensure **AOTriton** and **Flash Attention** are correctly active:
 ```bash
-git clone https://github.com/bitsandbytes-foundation/bitsandbytes.git -b 0.48.2
-cd bitsandbytes
-# replace gfx1201 by the arch for your GPU. You can get it with `amd-smi static | grep gfx`
-cmake -DCMAKE_HIP_COMPILER="/opt/rocm-7.1.1/lib/llvm/bin/clang++" -DCMAKE-DBNB_ROCM_ARCH="gfx1201" -DCOMPUTE_BACKEND=hip .
-make -j32
-pip install .
+python verify_accel.py
 ```
+This script checks for `libaotriton_v2.so` and simulates an attention kernel to confirm your RDNA3 hardware is being fully utilized.
+
+### Monitoring Guide
+We have provided a detailed guide on how to interpret `amdgpu_top` metrics during training:
+- **[AMD GPU Monitoring Guide](.gemini/antigravity/brain/a6902a33-0226-4321-8d66-955cff071900/amdgpu_monitoring_guide.md)**: Understand VRAM vs. GTT, GFX activity, and memory fragmented curves.
+
+### Optimization Environment Variables
+All optimal settings are pre-configured in `start_ui.sh`. Key variables include:
+- `PYTORCH_HIP_ALLOC_CONF="expandable_segments:True"`: Prevents OOM due to memory fragmentation on 24GB cards.
+- `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`: Enables the experimental AOTriton backend for RDNA3.
+
+---
+
+## NF4 Training Tips
+
+- **Resolution vs Batch Size**: For 1024x1024 training on 24GB VRAM, use `Batch Size = 4` with `Gradient Accumulation = 8`.
+- **Z-Image-Turbo**: Use the `nf4` toggle in the UI to fit Z-Image-Turbo into 24GB VRAM Standardized to support high-resolution training without batch size mismatch errors.
+- **Wan 2.1/2.2**: Use the `nf4` toggle in the UI to fit Wan 2.1/2.2 into 24GB VRAM.
+
+---
 
 # AI Toolkit UI
 

@@ -13,6 +13,7 @@ def get_umt5_encoder(
         "text_encoders/umt5_xxl_fp16.safetensors",
         "text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
     ],
+    quantization_config=None,
 ) -> UMT5EncoderModel:
     """
     Load the UMT5 encoder model from the specified path.
@@ -22,11 +23,11 @@ def get_umt5_encoder(
     comfy_path = None
     if comfy_path is not None:
         text_encoder = UMT5EncoderModel.from_single_file(
-            comfy_path, torch_dtype=torch_dtype
+            comfy_path, torch_dtype=torch_dtype, quantization_config=quantization_config
         )
     else:
         print(f"Using {model_path} for UMT5 encoder.")
         text_encoder = UMT5EncoderModel.from_pretrained(
-            model_path, subfolder=encoder_subfolder, torch_dtype=torch_dtype
+            model_path, subfolder=encoder_subfolder, torch_dtype=torch_dtype, quantization_config=quantization_config
         )
     return tokenizer, text_encoder

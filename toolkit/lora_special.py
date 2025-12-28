@@ -30,6 +30,8 @@ LINEAR_MODULES = [
     'Linear',
     'LoRACompatibleLinear',
     'QLinear',
+    'Linear4bit',
+    'Linear8bitLt',
     # 'GroupNorm',
 ]
 CONV_MODULES = [

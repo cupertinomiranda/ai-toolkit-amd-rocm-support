@@ -17,7 +17,7 @@ from toolkit.samplers.custom_flowmatch_sampler import (
 )
 from toolkit.util.quantize import quantize_model
 from .wan22_pipeline import Wan22Pipeline
-from diffusers import WanTransformer3DModel
+from diffusers import WanTransformer3DModel, BitsAndBytesConfig
 
 from toolkit.data_transfer_object.data_loader import DataLoaderBatchDTO
 from torchvision.transforms import functional as TF
@@ -281,20 +281,35 @@ class Wan2214bModel(Wan21):
 
         self.print_and_status_update("Loading transformer 1")
         dtype = self.torch_dtype
+        bnb_config = None
+        if self.model_config.quantize and self.model_config.qtype == "nf4":
+            self.print_and_status_update("Loading transformer 1 in NF4")
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=dtype,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+            )
+
         transformer_1 = WanTransformer3DModel.from_pretrained(
             transformer_path_1,
             subfolder=subfolder_1,
             torch_dtype=dtype,
-        ).to(dtype=dtype)
+            quantization_config=bnb_config,
+        )
+        if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+            transformer_1.to(dtype=dtype)
 
         flush()
 
         if self.model_config.low_vram:
             # quantize on the device
-            transformer_1.to('cpu', dtype=dtype)
+            if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+                transformer_1.to('cpu', dtype=dtype)
             flush()
         else:
-            transformer_1.to(self.device_torch, dtype=dtype)
+            if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+                transformer_1.to(self.device_torch, dtype=dtype)
             flush()
 
         if self.model_config.quantize and self.model_config.accuracy_recovery_adapter is None:
@@ -305,26 +320,43 @@ class Wan2214bModel(Wan21):
 
         if self.model_config.low_vram:
             self.print_and_status_update("Moving transformer 1 to CPU")
-            transformer_1.to("cpu")
+            if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+                transformer_1.to("cpu")
         else:
-            transformer_1.to(self.device_torch)
+            if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+                transformer_1.to(self.device_torch)
 
         self.print_and_status_update("Loading transformer 2")
         dtype = self.torch_dtype
+        bnb_config_2 = None
+        if self.model_config.quantize and self.model_config.qtype == "nf4":
+            self.print_and_status_update("Loading transformer 2 in NF4")
+            bnb_config_2 = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=dtype,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+            )
+
         transformer_2 = WanTransformer3DModel.from_pretrained(
             transformer_path_2,
             subfolder=subfolder_2,
             torch_dtype=dtype,
-        ).to(dtype=dtype)
+            quantization_config=bnb_config_2,
+        )
+        if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+            transformer_2.to(dtype=dtype)
 
         flush()
 
         if self.model_config.low_vram:
             # quantize on the device
-            transformer_2.to('cpu', dtype=dtype)
+            if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+                transformer_2.to('cpu', dtype=dtype)
             flush()
         else:
-            transformer_2.to(self.device_torch, dtype=dtype)
+            if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+                transformer_2.to(self.device_torch, dtype=dtype)
             flush()
 
         if self.model_config.quantize and self.model_config.accuracy_recovery_adapter is None:
@@ -335,9 +367,11 @@ class Wan2214bModel(Wan21):
 
         if self.model_config.low_vram:
             self.print_and_status_update("Moving transformer 2 to CPU")
-            transformer_2.to("cpu")
+            if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+                transformer_2.to("cpu")
         else:
-            transformer_2.to(self.device_torch)
+            if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+                transformer_2.to(self.device_torch)
     
         layer_offloading_transformer = self.model_config.layer_offloading and self.model_config.layer_offloading_transformer_percent > 0
         # make the combined model
@@ -389,6 +423,7 @@ class Wan2214bModel(Wan21):
             # todo detect if it is i2v or t2v
             boundary_ratio=boundary_ratio_t2v,
         )
+        pipeline.model_config = self.model_config
 
         # pipeline = pipeline.to(self.device_torch)
 

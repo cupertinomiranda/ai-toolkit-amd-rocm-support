@@ -10,7 +10,7 @@ from toolkit.memory_management.manager import MemoryManager
 from toolkit.models.base_model import BaseModel
 from toolkit.prompt_utils import PromptEmbeds
 from transformers import AutoTokenizer, UMT5EncoderModel
-from diffusers import  WanPipeline, WanTransformer3DModel, AutoencoderKL
+from diffusers import  WanPipeline, WanTransformer3DModel, AutoencoderKL, BitsAndBytesConfig
 from .autoencoder_kl_wan import AutoencoderKLWan
 import os
 import sys
@@ -149,7 +149,10 @@ class AggressiveWanUnloadPipeline(WanPipeline):
         
         print("Unloading vae")
         self.vae.to("cpu")
-        self.text_encoder.to(device)
+        if hasattr(self, 'model_config') and self.model_config.quantize_te and self.model_config.qtype_te == "nf4":
+             pass
+        else:
+            self.text_encoder.to(device)
 
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(
@@ -189,9 +192,11 @@ class AggressiveWanUnloadPipeline(WanPipeline):
 
         # unload text encoder
         print("Unloading text encoder")
-        self.text_encoder.to("cpu")
+        if not (hasattr(self, 'model_config') and self.model_config.quantize_te and self.model_config.qtype_te == "nf4"):
+            self.text_encoder.to("cpu")
 
-        self.transformer.to(device)
+        if not (hasattr(self, 'model_config') and self.model_config.quantize and self.model_config.qtype == "nf4"):
+            self.transformer.to(device)
 
         transformer_dtype = self.transformer.dtype
         prompt_embeds = prompt_embeds.to(device, transformer_dtype)
@@ -344,11 +349,24 @@ class Wan21(BaseModel):
     def load_wan_transformer(self, transformer_path, subfolder=None):
         self.print_and_status_update("Loading transformer")
         dtype = self.torch_dtype
+        bnb_config = None
+        if self.model_config.quantize and self.model_config.qtype == "nf4":
+            self.print_and_status_update("Loading transformer in NF4")
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=dtype,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+            )
+
         transformer = WanTransformer3DModel.from_pretrained(
             transformer_path,
             subfolder=subfolder,
             torch_dtype=dtype,
-        ).to(dtype=dtype)
+            quantization_config=bnb_config,
+        )
+        if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+            transformer.to(dtype=dtype)
 
         if self.model_config.split_model_over_gpus:
             raise ValueError(
@@ -356,10 +374,12 @@ class Wan21(BaseModel):
 
         if self.model_config.low_vram:
             # quantize on the device
-            transformer.to('cpu', dtype=dtype)
+            if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+                transformer.to('cpu', dtype=dtype)
             flush()
         else:
-            transformer.to(self.device_torch, dtype=dtype)
+            if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+                transformer.to(self.device_torch, dtype=dtype)
             flush()
 
         if self.model_config.assistant_lora_path is not None or self.model_config.inference_lora_path is not None:
@@ -370,7 +390,9 @@ class Wan21(BaseModel):
             raise ValueError(
                 "Loading LoRA is not supported for Wan2.1 models currently")
 
-        flush()
+        if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+             # skip for now if nf4
+             flush()
         
         if self.model_config.quantize:
             self.print_and_status_update("Quantizing Transformer")
@@ -423,13 +445,20 @@ class Wan21(BaseModel):
             tokenizer_subfolder="tokenizer",
             encoder_subfolder="text_encoder",
             torch_dtype=dtype,
-            comfy_files=self._comfy_te_file
+            comfy_files=self._comfy_te_file,
+            quantization_config=BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=dtype,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+            ) if self.model_config.quantize_te and self.model_config.qtype_te == "nf4" else None
         )
 
-        text_encoder.to(self.device_torch, dtype=dtype)
+        if not (self.model_config.quantize_te and self.model_config.qtype_te == "nf4"):
+            text_encoder.to(self.device_torch, dtype=dtype)
         flush()
 
-        if self.model_config.quantize_te:
+        if self.model_config.quantize_te and self.model_config.qtype_te != "nf4":
             self.print_and_status_update("Quantizing UMT5EncoderModel")
             quantize(text_encoder, weights=get_qtype(self.model_config.qtype))
             freeze(text_encoder)
@@ -445,7 +474,8 @@ class Wan21(BaseModel):
         if self.model_config.low_vram:
             print("Moving transformer back to GPU")
             # we can move it back to the gpu now
-            transformer.to(self.device_torch)
+            if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+                transformer.to(self.device_torch)
 
         scheduler = Wan21.get_train_scheduler()
         self.print_and_status_update("Loading VAE")
@@ -476,13 +506,16 @@ class Wan21(BaseModel):
         text_encoder = pipe.text_encoder
         tokenizer = pipe.tokenizer
 
-        pipe.transformer = pipe.transformer.to(self.device_torch)
+        if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+            pipe.transformer = pipe.transformer.to(self.device_torch)
 
         flush()
-        text_encoder.to(self.device_torch)
+        if not (self.model_config.quantize_te and self.model_config.qtype_te == "nf4"):
+            text_encoder.to(self.device_torch)
         text_encoder.requires_grad_(False)
         text_encoder.eval()
-        pipe.transformer = pipe.transformer.to(self.device_torch)
+        if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+            pipe.transformer = pipe.transformer.to(self.device_torch)
         flush()
         self.pipeline = pipe
         self.model = transformer
@@ -503,6 +536,7 @@ class Wan21(BaseModel):
                 expand_timesteps=self._wan_expand_timesteps,
                 device=self.device_torch
             )
+            pipeline.model_config = self.model_config
         else:
             pipeline = WanPipeline(
                 vae=self.vae,
@@ -513,6 +547,7 @@ class Wan21(BaseModel):
                 expand_timesteps=self._wan_expand_timesteps,
                 scheduler=scheduler,
             )
+            pipeline.model_config = self.model_config
 
         pipeline = pipeline.to(self.device_torch)
 

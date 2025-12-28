@@ -263,6 +263,9 @@ def quantize_model(
 
         # quantize it
         lora_exclude_modules = []
+        if base_model.model_config.qtype == "nf4":
+            print_acc("Skipping quantization for NF4 model (already handled by load)")
+            return
         quantization_type = get_qtype(base_model.model_config.qtype)
         for lora_module in tqdm(network.unet_loras, desc="Attaching quantization"):
             # the lora has already hijacked the original module
@@ -290,6 +293,9 @@ def quantize_model(
     else:
         # quantize model the original way without an accuracy recovery adapter
         # move and quantize only certain pieces at a time.
+        if base_model.model_config.qtype == "nf4":
+            print_acc("Skipping quantization for NF4 model (already handled by load)")
+            return
         quantization_type = get_qtype(base_model.model_config.qtype)
         # all_blocks = list(model_to_quantize.transformer_blocks)
         all_blocks: List[torch.nn.Module] = []

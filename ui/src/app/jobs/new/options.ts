@@ -541,8 +541,9 @@ export const groupedModelOptions: GroupedSelectOption[] = modelArchs.reduce((acc
 }, [] as GroupedSelectOption[]);
 
 export const quantizationOptions: SelectOption[] = [
-  { value: '', label: '- NONE -' },
-  { value: 'qfloat8', label: 'float8 (default)' },
+  { value: '', label: '- NONE - (default)' },
+  { value: 'nf4', label: 'nf4 (4-bit)' },
+  { value: 'qfloat8', label: 'float8' },
   { value: 'uint7', label: '7 bit' },
   { value: 'uint6', label: '6 bit' },
   { value: 'uint5', label: '5 bit' },
@@ -551,7 +552,7 @@ export const quantizationOptions: SelectOption[] = [
   { value: 'uint2', label: '2 bit' },
 ];
 
-export const defaultQtype = 'qfloat8';
+export const defaultQtype = '';
 
 interface JobTypeOption extends SelectOption {
   disableSections?: DisableableSections[];

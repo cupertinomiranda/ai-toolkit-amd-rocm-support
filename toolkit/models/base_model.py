@@ -673,7 +673,8 @@ class BaseModel:
             network.train()
             network.multiplier = start_multiplier
 
-        self.unet.to(self.device_torch, dtype=self.torch_dtype)
+        if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+            self.unet.to(self.device_torch, dtype=self.torch_dtype)
         if network.is_merged_in:
             network.merge_out(merge_multiplier)
         # self.tokenizer.to(original_device_dict['tokenizer'])
@@ -811,6 +812,7 @@ class BaseModel:
                 te_batch_size = text_embeddings.text_embeds[0].shape[0]
         else:
             te_batch_size = text_embeddings.text_embeds.shape[0]
+
         if latents.shape[0] == te_batch_size:
             do_classifier_free_guidance = False
         elif latents.shape[0] * 2 != te_batch_size:
@@ -900,8 +902,9 @@ class BaseModel:
                 self.unet.to(self.device_torch)
             except Exception as e:
                 pass
-        if self.unet.dtype != self.torch_dtype:
-            self.unet = self.unet.to(dtype=self.torch_dtype)
+        if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+            if self.unet.dtype != self.torch_dtype:
+                self.unet = self.unet.to(dtype=self.torch_dtype)
             
         # check if get_noise prediction has guidance_embedding_scale
         # if it does not, we dont pass it
@@ -1440,7 +1443,8 @@ class BaseModel:
             self.unet.train()
         else:
             self.unet.eval()
-        self.unet.to(state['unet']['device'])
+        if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+            self.unet.to(state['unet']['device'])
         if state['unet']['requires_grad']:
             self.unet.requires_grad_(True)
         else:
@@ -1452,7 +1456,8 @@ class BaseModel:
                         encoder.train()
                     else:
                         encoder.eval()
-                    encoder.to(state['text_encoder'][i]['device'])
+                    if not (self.model_config.quantize_te and self.model_config.qtype_te == "nf4"):
+                        encoder.to(state['text_encoder'][i]['device'])
                     encoder.requires_grad_(
                         state['text_encoder'][i]['requires_grad'])
                 else:
@@ -1460,7 +1465,8 @@ class BaseModel:
                         encoder.train()
                     else:
                         encoder.eval()
-                    encoder.to(state['text_encoder']['device'])
+                    if not (self.model_config.quantize_te and self.model_config.qtype_te == "nf4"):
+                        encoder.to(state['text_encoder']['device'])
                     encoder.requires_grad_(
                         state['text_encoder']['requires_grad'])
         else:
@@ -1468,7 +1474,8 @@ class BaseModel:
                 self.text_encoder.train()
             else:
                 self.text_encoder.eval()
-            self.text_encoder.to(state['text_encoder']['device'])
+            if not (self.model_config.quantize_te and self.model_config.qtype_te == "nf4"):
+                self.text_encoder.to(state['text_encoder']['device'])
             self.text_encoder.requires_grad_(
                 state['text_encoder']['requires_grad'])
 
@@ -1554,6 +1561,8 @@ class BaseModel:
         self.set_device_state(state)
 
     def text_encoder_to(self, *args, **kwargs):
+        if self.model_config.quantize_te and self.model_config.qtype_te == "nf4":
+             return
         if isinstance(self.text_encoder, list):
             for encoder in self.text_encoder:
                 encoder.to(*args, **kwargs)
