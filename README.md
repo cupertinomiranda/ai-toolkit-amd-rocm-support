@@ -236,27 +236,6 @@ Successfully train massive models like **Wan 2.2 (14B)** and **Z-Image-Turbo** o
 - **Z-Image & Wan Support**: Full compatibility with Tongyi-MAI/Z-Image and Wan-AI models (Wan 2.1 T2V/I2V, Wan 2.2 5B/14B).
 - **UI Enhancements**: Added NF4 quantization toggle and Gradient Checkpointing toggle to the job configuration page.
 
----
-
-## Support My Work
-
-If you enjoy my projects or use them commercially, please consider sponsoring me. Every bit helps! 💖
-
-[Sponsor on GitHub](https://github.com/orgs/ostris) | [Support on Patreon](https://www.patreon.com/ostris) | [Donate on PayPal](https://www.paypal.com/donate/?hosted_button_id=9GEFUKC8T9R9W)
-
-### Current Sponsors
-
-All of these people / organizations are the ones who selflessly make this project possible. Thank you!!
-
-_Last updated: 2025-10-20 15:52 UTC_
-
-<p align="center">
-<a href="https://x.com/NuxZoe" target="_blank" rel="noopener noreferrer"><img src="https://pbs.twimg.com/profile_images/1919488160125616128/QAZXTMEj_400x400.png" alt="a16z" width="280" height="280" style="border-radius:8px;margin:5px;display: inline-block;"></a>
-<a href="https://github.com/replicate" target="_blank" rel="noopener noreferrer"><img src="https://avatars.githubusercontent.com/u/60410876?v=4" alt="Replicate" width="280" height="280" style="border-radius:8px;margin:5px;display: inline-block;"></a>
-<a href="https://github.com/huggingface" target="_blank" rel="noopener noreferrer"><img src="https://avatars.githubusercontent.com/u/25720743?v=4" alt="Hugging Face" width="280" height="280" style="border-radius:8px;margin:5px;display: inline-block;"></a>
-</p>
-
----
 
 ## Installation (AMD ROCm 7.1.1+)
 
