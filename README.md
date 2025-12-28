@@ -208,7 +208,8 @@ _Last updated: 2025-12-17 22:19 UTC_
 </p>
 
 ---
-
+![shotcut_28-12-2025_134749_localhost](https://github.com/user-attachments/assets/52a2db5b-61d4-4f95-8745-22b79d41c37c)
+![shotcut_28-12-2025_134827_localhost](https://github.com/user-attachments/assets/6d11188c-41fb-4073-9f1a-2ff4b70db176)
 
 
 
@@ -324,16 +325,16 @@ python verify_accel.py
 ```
 This script checks for `libaotriton_v2.so` and simulates an attention kernel to confirm your RDNA3 hardware is being fully utilized.
 
-### Monitoring Guide
-We have provided a detailed guide on how to interpret `amdgpu_top` metrics during training:
-- **[AMD GPU Monitoring Guide](.gemini/antigravity/brain/a6902a33-0226-4321-8d66-955cff071900/amdgpu_monitoring_guide.md)**: Understand VRAM vs. GTT, GFX activity, and memory fragmented curves.
-
 ### Optimization Environment Variables
 All optimal settings are pre-configured in `start_ui.sh`. Key variables include:
 - `PYTORCH_HIP_ALLOC_CONF="expandable_segments:True"`: Prevents OOM due to memory fragmentation on 24GB cards.
 - `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`: Enables the experimental AOTriton backend for RDNA3.
 
 ---
+# 🤖 AI Assistance & Disclaimer
+- **AI Collaborator**: As my personal coding proficiency is limited, the majority of the technical work and bug fixes in this branch were completed with the assistance of Gemini 3.0 Pro (Antigravity).
+- **Usage Advice**: If you encounter specific bugs or need deep technical troubleshooting, I highly recommend loading this project folder into an agentic AI (like Antigravity) to perform a self-diagnostic and inspection, as this was the primary method used to achieve the current stable state of the project.
+
 
 ## NF4 Training Tips
 
