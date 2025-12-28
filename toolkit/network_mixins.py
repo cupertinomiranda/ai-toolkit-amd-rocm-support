@@ -29,7 +29,9 @@ Module = Union['LoConSpecialModule', 'LoRAModule', 'DoRAModule']
 LINEAR_MODULES = [
     'Linear',
     'LoRACompatibleLinear',
-    'QLinear'
+    'QLinear',
+    'Linear4bit',
+    'Linear8bitLt',
     # 'GroupNorm',
 ]
 CONV_MODULES = [
@@ -365,7 +367,13 @@ class ToolkitModuleMixin:
         weight_key = "weight"
         if 'weight._data' in org_sd:
             # quantized weight
-            weight_key = "weight._data"
+            return
+
+        # Check for BitsAndBytes Params4bit or other quantized types
+        if org_sd['weight'].__class__.__name__ == 'Params4bit':
+             return
+
+        weight_key = "weight"
 
         orig_dtype = org_sd[weight_key].dtype
         weight = org_sd[weight_key].float()

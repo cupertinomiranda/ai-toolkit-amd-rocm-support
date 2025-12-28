@@ -128,6 +128,7 @@ class Wan225bModel(Wan21):
             device=self.device_torch,
             aggressive_offload=self.model_config.low_vram,
         )
+        pipeline.model_config = self.model_config
 
         pipeline = pipeline.to(self.device_torch)
 

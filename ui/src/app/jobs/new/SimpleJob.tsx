@@ -474,6 +474,12 @@ export default function SimpleJob({
                   min={1}
                   required
                 />
+                <Checkbox
+                  label="Gradient Checkpointing"
+                  className="pt-2"
+                  checked={jobConfig.config.process[0].train.gradient_checkpointing || false}
+                  onChange={value => setJobConfig(value, 'config.process[0].train.gradient_checkpointing')}
+                />
                 <NumberInput
                   label="Steps"
                   className="pt-2"
@@ -601,7 +607,7 @@ export default function SimpleJob({
               </div>
               <div>
                 {disableSections.includes('train.diff_output_preservation') ||
-                disableSections.includes('train.blank_prompt_preservation') ? null : (
+                  disableSections.includes('train.blank_prompt_preservation') ? null : (
                   <FormGroup label="Regularization">
                     <></>
                   </FormGroup>

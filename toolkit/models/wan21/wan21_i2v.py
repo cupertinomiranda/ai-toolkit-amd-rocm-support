@@ -106,7 +106,10 @@ class AggressiveWanI2VUnloadPipeline(WanImageToVideoPipeline):
         # device = self.transformer.device
         device = self._exec_device
         
-        self.text_encoder.to(device)
+        if hasattr(self, 'model_config') and self.model_config.quantize_te and self.model_config.qtype_te == "nf4":
+             pass
+        else:
+            self.text_encoder.to(device)
         
         self.vae.to('cpu')
         self.image_encoder.to('cpu')
@@ -151,8 +154,10 @@ class AggressiveWanI2VUnloadPipeline(WanImageToVideoPipeline):
         )
         
         # unload text encoder
-        self.text_encoder.to("cpu")
-        self.transformer.to(device)
+        if not (hasattr(self, 'model_config') and self.model_config.quantize_te and self.model_config.qtype_te == "nf4"):
+            self.text_encoder.to("cpu")
+        if not (hasattr(self, 'model_config') and self.model_config.quantize and self.model_config.qtype == "nf4"):
+            self.transformer.to(device)
         flush()
 
         # Encode image embedding
@@ -306,7 +311,8 @@ class Wan21I2V(Wan21):
         super().load_model()
         if self.model_config.low_vram:
             # unload text encoder
-            self.text_encoder.to("cpu")
+            if not (self.model_config.quantize_te and self.model_config.qtype_te == "nf4"):
+                self.text_encoder.to("cpu")
         # all the base stuff is loaded. We now need to load the vision encoder stuff
         dtype = self.torch_dtype
         try:
@@ -336,6 +342,7 @@ class Wan21I2V(Wan21):
         
         if self.model_config.low_vram:
             # unload image encoder
+            # image encoder is not nf4 (usually), but worth checking if we add it later
             self.image_encoder.to("cpu")
         
         # rebuild the pipeline
@@ -353,7 +360,8 @@ class Wan21I2V(Wan21):
             # unload image encoder
             self.image_encoder.to("cpu")
             self.vae.to("cpu")
-            self.transformer.to("cpu")
+            if not (self.model_config.quantize and self.model_config.qtype == "nf4"):
+                self.transformer.to("cpu")
         flush()
         super().generate_images(
             image_configs,
@@ -381,6 +389,7 @@ class Wan21I2V(Wan21):
                 image_processor=self.image_processor,
                 device=self.device_torch
             )
+            pipeline.model_config = self.model_config
         else:
             pipeline = WanImageToVideoPipeline(
                 vae=self.vae,
@@ -391,6 +400,7 @@ class Wan21I2V(Wan21):
                 image_encoder=self.image_encoder,
                 image_processor=self.image_processor,
             )
+            pipeline.model_config = self.model_config
 
         # pipeline = pipeline.to(self.device_torch)
 
